@@ -1,0 +1,57 @@
+x-py: &py
+  build: .
+  image: oncall-outfitters:1.0
+  restart: unless-stopped
+  depends_on: [otel-collector]
+
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: otlp
+  OTEL_LOGS_EXPORTER: otlp
+  OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+  OTEL_METRIC_EXPORT_INTERVAL: "10000"
+  OTEL_RESOURCE_ATTRIBUTES: service.namespace=oncall-outfitters,service.version=1.0.0,deployment.environment.name=demo
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./otel-collector.yaml:/etc/otelcol/config.yaml:ro"]
+    env_file: .env
+    restart: unless-stopped
+
+  card-gateway:
+    <<: *py
+    command: opentelemetry-instrument python card_gateway.py
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: card-gateway
+
+  payment:
+    <<: *py
+    command: opentelemetry-instrument python payment.py
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: payment
+
+  checkout:
+    <<: *py
+    command: opentelemetry-instrument python checkout.py
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: checkout
+
+  frontend:
+    <<: *py
+    command: opentelemetry-instrument python frontend.py
+    ports: ["8080:8080"]
+    environment:
+      <<: *otel
+      OTEL_SERVICE_NAME: frontend
+
+  loadgen:
+    <<: *py
+    command: python loadgen.py
+    depends_on: [frontend]
